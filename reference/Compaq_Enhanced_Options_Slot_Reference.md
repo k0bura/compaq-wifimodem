@@ -1,6 +1,6 @@
 # Compaq Enhanced Options Slot — Reference
 
-**Source:** Compaq Portable 486c Reference Guide (P/N 128984-001, November 1991)
+**Sources:** Compaq Portable 486c Reference Guide (P/N 128984-001, November 1991); Compaq LTE Lite guide (`8977986.pdf`, section 6.4)
 
 ---
 
@@ -48,102 +48,188 @@ Options installed in the Enhanced Options Slot may need to be configured using t
 
 ---
 
-## 50-Pin Connector Pinout
+## Sources for the Pinout
 
-### Pins 1–40
+Two documents in this directory describe the slot:
 
-| Pin | Signal         | Pin | Signal         |
-|-----|----------------|-----|----------------|
-| 1   | Ground         | 21  | Mclock         |
-| 2   | Data Bit <0>   | 22  | Reserve 1      |
-| 3   | Data Bit <1>   | 23  | Reserve 2      |
-| 4   | Data Bit <2>   | 24  | Slot-on        |
-| 5   | Data Bit <3>   | 25  | SPKDRV         |
-| 6   | Data Bit <4>   | 26  | Ground         |
-| 7   | Data Bit <5>   | 27  | Ground         |
-| 8   | Data Bit <6>   | 28  | DMA            |
-| 9   | Data Bit <7>   | 29  | Data Bit <15>  |
-| 10  | Select         | 30  | Data Bit <14>  |
-| 11  | IOW            | 31  | Data Bit <13>  |
-| 12  | IOR            | 32  | Data Bit <12>  |
-| 13  | IRQ            | 33  | Data Bit <11>  |
-| 14  | Bus Ready      | 34  | Data Bit <10>  |
-| 15  | +5V            | 35  | Data Bit <9>   |
-| 16  | +5V            | 36  | Data Bit <8>   |
-| 17  | RST            | 37  | Add 3          |
-| 18  | XA08           | 38  | Add 4          |
-| 19  | Add 1          | 39  | Add 5          |
-| 20  | Add 2          | 40  | Add 6          |
+- **486c Reference Guide** (`128984-001_...pdf`, Appendix D, pages D-4/D-5):
+  pin numbers and short signal names only. No directions, polarities or
+  descriptions. The scan's OCR also confuses Q/0 and D/O.
+- **LTE Lite guide** (`8977986.pdf`, section 6.4, Table 6-3): the same 50
+  pins with signal direction, polarity and function, plus the system-side
+  configuration registers.
 
-### Pins 41–50
-
-| Pin | Signal       |
-|-----|--------------|
-| 41  | Add 7        |
-| 42  | Add 8        |
-| 43  | Add 9        |
-| 44  | SLOT-DMA-    |
-| 45  | T-C          |
-| 46  | SLOT-IR08    |
-| 47  | IO16         |
-| 48  | SLOT-DRQ     |
-| 49  | SLOT-IOEN    |
-| 50  | SLOT-DAK     |
+The pin numbers of the two tables match signal-for-signal, so this
+reference treats them as the same interface. **That equivalence is an
+inference and has not been verified on a Portable 486c.** Electrical
+figures (350 mA, 2.5 us, 20 mA) are LTE Lite values.
 
 ---
 
-## Signal Descriptions
+## 50-Pin Connector Pinout
 
-### Data Bus
-- **Data Bit <0> – <15>** (Pins 2–9, 29–36): 16-bit data bus, supporting ISA-style 16-bit transfers.
+"Dir" is from the option card's point of view (In = driven by the system).
+A trailing `-` means active low.
 
-### Address Bus
-- **XA08** (Pin 18): Address line 8
-- **Add 1 – Add 9** (Pins 19–20, 37–43): Address lines for I/O port decoding (10 address lines total including XA08, providing up to 1024 I/O port addresses).
+| Pin | 486c manual name | LTE Lite name | Dir | Function |
+|-----|------------------|---------------|-----|----------|
+| 1   | Ground           | GND           | —   | Ground |
+| 2   | Data Bit <0>     | DB00          | I/O | Data bus, low byte |
+| 3   | Data Bit <1>     | DB01          | I/O | |
+| 4   | Data Bit <2>     | DB02          | I/O | |
+| 5   | Data Bit <3>     | DB03          | I/O | |
+| 6   | Data Bit <4>     | DB04          | I/O | |
+| 7   | Data Bit <5>     | DB05          | I/O | |
+| 8   | Data Bit <6>     | DB06          | I/O | |
+| 9   | Data Bit <7>     | DB07          | I/O | |
+| 10  | Select           | SLOT CS-      | In  | Low when the system's slot logic has decoded a valid I/O address |
+| 11  | IOW              | SIOWC-        | In  | I/O write command |
+| 12  | IOR              | SIORC-        | In  | I/O read command |
+| 13  | IRQ              | SLOT IRQA     | Out | Interrupt request; system maps it to IRQ3 or IRQ4 |
+| 14  | Bus Ready        | BUSRDY-       | Out | Pull low to lengthen the bus cycle (wait states). Open collector, 20 mA sink, max 2.5 us |
+| 15  | +5V              | +5 VDC        | —   | Power, 350 mA total across pins 15 and 16 |
+| 16  | +5V              | +5 VDC        | —   | |
+| 17  | RST              | SLOT RST      | In  | Reset. Also pulsed for 10 ms when SLOT ON toggles |
+| 18  | XA08             | SA0           | In  | Address bit 0 |
+| 19  | Add 1            | SA1           | In  | Address bit 1 |
+| 20  | Add 2            | SA2           | In  | Address bit 2 |
+| 21  | Mclock           | COMMCLK       | In  | 1.8432 MHz UART clock, 50% duty. Stopped in standby |
+| 22  | Reserve 1        | Reserved      | —   | Not used |
+| 23  | Reserve 2        | WAKEUP-       | Out | Low brings the system out of standby (LTE Lite). Leave unconnected |
+| 24  | Slot-on          | SLOT ON       | In  | System control for the card's low-power mode |
+| 25  | SPKDRV           | MSPKDRV       | Out | Audio to system speaker (5 V RMS max into 10K) |
+| 26  | Ground           | GND           | —   | Ground |
+| 27  | Ground           | GND           | —   | Ground |
+| 28  | DMA              | DMA           | In  | High while a DMA cycle is in progress |
+| 29  | Data Bit <15>    | DB15          | I/O | Data bus, high byte (16-bit devices only) |
+| 30  | Data Bit <14>    | DB14          | I/O | |
+| 31  | Data Bit <13>    | DB13          | I/O | |
+| 32  | Data Bit <12>    | DB12          | I/O | |
+| 33  | Data Bit <11>    | DB11          | I/O | |
+| 34  | Data Bit <10>    | DB10          | I/O | |
+| 35  | Data Bit <9>     | DB09          | I/O | |
+| 36  | Data Bit <8>     | DB08          | I/O | |
+| 37  | Add 3            | SA3           | In  | Address bit 3 |
+| 38  | Add 4            | SA4           | In  | Address bit 4 |
+| 39  | Add 5            | SA5           | In  | Address bit 5 |
+| 40  | Add 6            | SA6           | In  | Address bit 6 |
+| 41  | Add 7            | SA7           | In  | Address bit 7 |
+| 42  | Add 8            | SA8           | In  | Address bit 8 |
+| 43  | Add 9            | SA9           | In  | Address bit 9 |
+| 44  | SLOT-DMA-        | SLOT DMA-     | Out | Low tells the system the card can do DMA. Open collector, 20 mA |
+| 45  | T-C              | T-C           | In  | High at DMA terminal count |
+| 46  | SLOT-IRQB        | SLOT IRQB     | Out | Second interrupt, for programmable-address devices: IRQ3/4/5/7/9 |
+| 47  | IO16             | I/O16-        | Out | Low tells the system the card supports 16-bit transfers. Open collector, 20 mA |
+| 48  | SLOT-DRQ         | SLOT DRQ      | Out | DMA request (DRQ1, 3 or 5) |
+| 49  | SLOT-IOEN        | SLOT IOEN-    | Out | Low indicates the card has a valid I/O address decode |
+| 50  | SLOT-DAK         | SLOT DAK      | In  | DMA acknowledge |
 
-### Control Signals
-- **IOW** (Pin 11): I/O Write — active when the CPU is writing to an I/O port.
-- **IOR** (Pin 12): I/O Read — active when the CPU is reading from an I/O port.
-- **IRQ** (Pin 13): Interrupt Request — directly from the option board to the system interrupt controller.
-- **Bus Ready** (Pin 14): Indicates the device is ready / used for wait-state insertion.
-- **RST** (Pin 17): System Reset.
-- **Select** (Pin 10): Chip select / board select signal.
-- **IO16** (Pin 47): Indicates the device supports 16-bit I/O transfers.
-- **SLOT-IOEN** (Pin 49): Slot I/O Enable — enables the slot for I/O access.
+### Notes on names
 
-### DMA Signals
-- **DMA** (Pin 28): DMA signal.
-- **SLOT-DMA-** (Pin 44): Slot DMA request (active low).
-- **SLOT-DRQ** (Pin 48): Slot DMA Request.
-- **SLOT-DAK** (Pin 50): Slot DMA Acknowledge.
-- **T-C** (Pin 45): Terminal Count — signals end of a DMA transfer.
+- **Pin 18 is address bit 0, not bit 8.** The 486c scan reads "XA08";
+  the LTE Lite table lists pin 18 as SA0, and "Add 1"–"Add 9" are then
+  A1–A9, giving the ten lines A0–A9.
+- **Pin 46 is SLOT-IRQB, not "IR08"/IRQ8.** The 486c scan's OCR turns Q
+  into 0 and B into 8. Likewise the scan shows "OMA", "SLOT-ORO",
+  "SLOT-OAK" and "1016" for DMA, SLOT-DRQ, SLOT-DAK and IO16.
+- **Pin 49 (SLOT IOEN-) is driven by the card**, not by the system. How
+  the 486c uses it (most likely to enable its data buffers toward the
+  slot) is not documented; confirm by measurement.
 
-### Power and Ground
-- **+5V** (Pins 15, 16): +5V DC power supply.
-- **Ground** (Pins 1, 26, 27): Ground/return.
+---
 
-### Miscellaneous
-- **Mclock** (Pin 21): Master clock signal.
-- **Slot-on** (Pin 24): Indicates the slot is active/populated.
-- **SPKDRV** (Pin 25): Speaker drive — allows the option board to drive the system speaker (e.g., modem audio).
-- **Reserve 1** (Pin 22): Reserved for future use.
-- **Reserve 2** (Pin 23): Reserved for future use.
-- **SLOT-IR08** (Pin 46): Secondary interrupt (IRQ8 line, from the second PIC).
+## System-Side Configuration (LTE Lite)
+
+On the LTE Lite the slot's address decode and IRQ routing are set by
+I/O-mapped registers, and the system generates SLOT CS-:
+
+| Register | Address | Relevant function |
+|----------|---------|-------------------|
+| Peripheral Configuration | 0465h | COM1/COM2 decode select, decode enable, IRQA to IRQ3/IRQ4 |
+| Option Slot Configuration | 2865h | Decode range length (8/16/32/64 bytes), IRQB and DMA mapping |
+| Option Slot Address Decode | 2C65h | Programmable base address, enable bit 7 |
+| Miscellaneous Options | 3465h | Bit 2 = SLOT ON |
+
+Whether the Portable 486c has the same registers is unknown. Its manual
+only describes assigning COM1/COM2 resources through the EISA
+Configuration Utility and setting jumpers on the card, which leaves open
+whether the 486c pre-decodes SLOT CS- or expects the card to decode
+A3–A9 itself.
 
 ---
 
 ## Bus Characteristics
 
-The Enhanced Options Slot is essentially a simplified, proprietary ISA-like bus with the following characteristics:
+- Subset of the ISA bus; the LTE Lite guide states signal timing is
+  identical to ISA
+- 16-bit data bus, 10 address lines (A0–A9)
+- Two interrupt outputs (IRQA, IRQB)
+- Wait-state support via BUSRDY-
+- DMA support via DMA, SLOT DMA-, SLOT DRQ, SLOT DAK, T-C
+- +5V only, 350 mA (LTE Lite figure); no ±12V
+- UART clock (1.8432 MHz) supplied on pin 21
 
-- **16-bit data bus** (Data Bit <0> through <15>)
-- **10 address lines** (XA08, Add 1–9) — sufficient for standard ISA I/O port decoding
-- **Single IRQ line** plus a secondary interrupt (SLOT-IR08)
-- **DMA support** via DMA, SLOT-DMA-, SLOT-DRQ, SLOT-DAK, and T-C signals
-- **+5V power only** (no ±12V lines)
-- **50-pin form factor** — much smaller than a standard ISA slot
+---
 
-This makes it well-suited for simple peripherals like modems and serial ports that need only I/O port access, one interrupt, and optionally DMA, without requiring the full ISA/EISA bus.
+## Original Compaq Modem (from photos of the board)
+
+Compaq internal modem, spare no. 125925-001, assembly 002160-001, bare
+board 002162-001, copyright 1991/1992, FCC ID CNT75M87Z.
+
+Probably the "Enhanced 9600-bps Data+Fax Modem", option part 125901-002
+in the LTE Lite guide's options list (the board's own numbers are all in
+the same 1259xx range; the match is by number range, not confirmed).
+
+No datasheet, schematic or technical reference for this modem was found
+online (searched November 2026 by spare number, label number, FCC ID and
+product name). The LTE Lite guide's diagnostics table (error codes
+1201-xx) tests the modem as a standard UART: DLAB bit, THRE, Data Ready,
+TX/RX buffer, interrupt on COM1/COM2, and control signals.
+
+| Ref | Marking | Identification |
+|-----|---------|----------------|
+| U501 | Compaq 125905-003 (1992, QFP) | Custom ASIC beside the 50-pin connector; presumed host bus interface |
+| U3 | Large QFP, marking hidden by a barcode label | Presumed controller CPU |
+| U1 | Intel N27C220-150V10, Compaq 125934-002, socketed PLCC | 2 Mbit 16-bit-wide EPROM (firmware) |
+| U505, U506 | M5M5256BVP-10LL x2 | 32K x 8 SRAM |
+| — | X24C16S | 16 Kbit serial EEPROM (stored settings) |
+| U2 | AT&T WE DSP16A | DSP (data pump) |
+| U500 | AT&T M-V.32-INTFC-F | V.32 interface chip |
+| U4 | AT&T T7525 | Codec |
+| U503 | 70M376-CH | Analog line-interface part (not positively identified) |
+| — | 16.000 MHz and 40.550 MHz oscillators | No 1.8432 MHz source on the card |
+| — | Transformer, relay, LH1516, LM358 | Phone line interface |
+
+Observations relevant to a replacement card:
+
+- There is no discrete 16450/16550. The UART register interface is
+  implemented in the ASIC.
+- No buffer or transceiver chips sit between the connector and the ASIC.
+- No jumpers or DIP switches, so the COM port is not selected on the card.
+- Bulk capacitance on the 5V rail is three 68 uF tantalums.
+- Two 50-pin connector positions carry the slot signals: J1 (right-angle
+  receptacle on a short edge) and J4 (two rows of 25 through-holes along
+  a long edge).
+- Silkscreen marks pins 1 and 2 side by side at one end of J4 and 49 and
+  50 at the other, and pin 2 and pin 50 at opposite ends of J1. Numbering
+  is therefore odd/even across the rows, not one row 1-25 and the other
+  26-50.
+
+---
+
+## Photos
+
+In `photos/`:
+
+| File | Shows |
+|------|-------|
+| `slot-j22-system-io-board.jpg` | The slot header (J22) on the 486c System I/O board, with the Torx standoff beside it |
+| `slot-j22-closeup.jpg` | J22 from above: shrouded 2x25 male header |
+| `modem-connector-edge-on.jpg` | Original modem seen edge-on, looking into the 2x25 receptacle |
+| `modem-top-both-connectors.jpg` | Modem top side with both 50-pin connectors (J1 and J4) still fitted |
+| `modem-top-j4-removed.jpg` | Modem top side after J4 was desoldered; J1/J4 pin-number silkscreen visible |
+| `modem-top-j4-removed-rotated.jpg` | Same, rotated 180 degrees |
+| `modem-bottom.jpg` | Modem bottom side: host-interface ASIC (U501), V.32 interface chip, SRAMs, EEPROM |
 
 ---
 
@@ -157,4 +243,4 @@ The Compaq Portable 486c (33 MHz i486 with integrated FPU and 8 KB cache) also f
 
 ---
 
-*Extracted from Compaq Portable 486c Reference Guide, Part Number 128984-001, November 1991. Available at bitsavers.org.*
+*Pin names from the Compaq Portable 486c Reference Guide (P/N 128984-001, November 1991). Directions, functions and configuration registers from the Compaq LTE Lite guide (`8977986.pdf`, section 6.4).*

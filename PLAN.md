@@ -1,0 +1,343 @@
+# ESP32 WiFi Modem for Compaq Enhanced Options Slot
+
+## Goal
+
+A Hayes-compatible WiFi modem card for the Compaq Portable 486c's 50-pin
+Enhanced Options Slot, bridging AT commands to WiFi/TCP connections.
+
+## Architecture
+
+```
+486c slot (5V, ISA timing) <--> 16C550 UART <--serial, TTL--> ESP32 <--> WiFi
+```
+
+A real 16C550 UART sits on the bus and the ESP32 sits on its serial side,
+in the place a modem data pump would occupy. The UART handles all bus
+timing, register behaviour, FIFOs and interrupts in hardware, so the ESP32
+firmware is an ordinary serial-to-WiFi modem with no real-time bus work.
+
+This replaces the earlier plan of having the ESP32 emulate the 16550
+registers directly on the bus. See "Alternative Not Chosen" for why.
+
+---
+
+### How this compares with the original Compaq modem
+
+The original card (Compaq 9600 bps modem, spare 125925-001) has the same
+partition:
+
+| Original | This design |
+|----------|-------------|
+| Compaq host-interface ASIC (125905-003) next to the connector | 16C550 |
+| Controller CPU + 27C220 firmware EPROM + 2x 32K SRAM + EEPROM | ESP32 (flash, RAM, NVS) |
+| AT&T DSP16A data pump, codec, line interface | ESP32 WiFi |
+
+The original keeps the bus interface in dedicated hardware and the modem
+logic in a separate processor behind it, with no buffers between the
+connector and the ASIC and no jumpers for COM port selection. It has no
+discrete UART; the ASIC presents the UART registers itself. See the
+reference file for the component list.
+
+---
+
+## Sources and Confidence
+
+The 486c manual (Appendix D) gives only pin numbers and terse signal names.
+Signal directions, polarities and functions in this plan come from the
+LTE Lite guide (`reference/8977986.pdf`, section 6.4), which documents a
+50-pin enhanced option slot whose pin numbers match the 486c's
+signal-for-signal.
+
+**Assumption:** the two slots are the same interface. This is an inference
+from the matching pinouts and is not yet confirmed on the 486c. Phase 0a
+exists to confirm it before anything drives the bus.
+
+See `reference/Compaq_Enhanced_Options_Slot_Reference.md` for the full pin
+table.
+
+---
+
+## Bus Summary
+
+Directions are from the card's point of view.
+
+| What | Pins | Dir | Details |
+|------|------|-----|---------|
+| Data bus | 2-9 (D0-D7) | I/O | 8 bits is all a UART needs. D8-D15 (29-36) unused. |
+| Address | 18 (A0), 19 (A1), 20 (A2) | In | Register select. Pin 18 is A0, "Add 1" is A1, "Add 2" is A2. |
+| Upper address | 37-43 (A3-A9) | In | Only needed if SLOT CS- turns out not to be pre-decoded. |
+| SLOT CS- ("Select") | 10 | In | Active low. On the LTE Lite the system pre-decodes this as COM1/COM2. |
+| IOR-, IOW- | 12, 11 | In | Active low, ISA timing. |
+| SLOT IOEN- | 49 | **Out** | Active low. Card tells the system it has a valid address decode. |
+| SLOT IRQA ("IRQ") | 13 | Out | System maps it to IRQ3 or IRQ4. |
+| SLOT RST | 17 | In | Reset. Presumed active high (as ISA RESET DRV); verify. |
+| COMMCLK ("Mclock") | 21 | In | 1.8432 MHz UART clock (LTE Lite). Verify it is present on the 486c. |
+| DMA | 28 | In | High during DMA cycles (acts as ISA AEN). Only needed for own decode. |
+| +5V | 15, 16 | — | 350 mA total (LTE Lite figure). |
+| GND | 1, 26, 27 | — | Only three grounds. Keep wiring short. |
+
+Not used: BUSRDY- (14; the 16550 is fast enough without wait states),
+WAKEUP- (23, leave unconnected), SLOT ON (24), remaining DMA signals,
+SLOT IRQB (46), I/O16- (47). MSPKDRV (25) is optional, see Phase 4.
+
+---
+
+## Hardware Design
+
+### UART
+
+16C550 powered at 5V, so the bus side needs no level shifting.
+TL16C550C or PC16550D; DIP-40 for breadboarding, PLCC-44 for the final card.
+
+| 16550 pin | Connects to | Notes |
+|-----------|-------------|-------|
+| D0-D7 | Slot 2-9 | Direct |
+| A0, A1, A2 | Slot 18, 19, 20 | |
+| CS2- | Slot 10 (SLOT CS-) | If pre-decoded. Otherwise from own decoder (below) |
+| CS0, CS1 | +5V | |
+| RD- | Slot 12 (IOR-) | |
+| WR- | Slot 11 (IOW-) | |
+| RD, WR, ADS- | GND | Unused alternate-polarity strobes |
+| MR | Slot 17 (SLOT RST) | MR is active high; invert if Phase 0a shows RST is active low |
+| XIN | Slot 21 (COMMCLK) | XOUT open. Fallback: 1.8432 MHz oscillator on the card |
+| BAUDOUT- | RCLK | Also to the ESP32 for baud tracking (level shifted) |
+| INTRPT | Slot 13 via 74HCT125 | Buffer enabled by OUT2-, the PC convention |
+| OUT2- | 74HCT125 enable | |
+| SOUT, RTS-, DTR- | ESP32 inputs | 5V outputs, must be level shifted down |
+| SIN, CTS-, DSR-, DCD-, RI- | ESP32 outputs | 3.3V drive meets the 16550's TTL input thresholds directly |
+
+### Glue logic
+
+- **IRQ gate:** one 74HCT125 section, input INTRPT, enable OUT2-, output to pin 13.
+- **IOEN-:** drive pin 49 low while the card is selected. Start with a
+  74HCT125 section buffering SLOT CS-; revise after Phase 0a.
+- **Own address decode (only if SLOT CS- is not pre-decoded on the 486c):**
+  compare A3-A9 against 0x2F8 with pin 28 (DMA) low, using a 74HCT688 or
+  a GAL, and feed the result to CS2- and IOEN-.
+
+### ESP32 side
+
+All 5V-to-ESP32 signals go through a 74LVC125/74LVC244 powered at **3.3V**
+(5V-tolerant inputs, 3.3V outputs). ESP32 GPIOs are not 5V tolerant.
+Do not use 74HCT parts powered at 5V for this direction.
+
+| Signal | ESP32 | Direction | Level shift |
+|--------|-------|-----------|-------------|
+| SOUT | UART RX | In | 74LVC |
+| SIN | UART TX | Out | None |
+| RTS- | UART CTS | In | 74LVC |
+| CTS- | UART RTS | Out | None |
+| DTR- | GPIO | In | 74LVC |
+| DCD- | GPIO | Out | None |
+| RI- | GPIO | Out | None |
+| BAUDOUT- | GPIO (pulse counter) | In | 74LVC |
+
+DSR- is tied low (modem always ready). Total: 8 GPIOs. Use a UART other
+than UART0 so the USB console stays free for debugging.
+
+The serial side is TTL-level and non-inverted (idle high, modem-control
+lines active low), which matches the ESP32 UART directly. No RS-232
+transceiver is involved.
+
+### Baud rate tracking
+
+DOS software sets the baud rate by programming the 16550's divisor, which
+the ESP32 cannot see. BAUDOUT- outputs 16x the programmed baud rate, so
+the ESP32 measures its frequency with the pulse counter and sets its own
+UART to match. Maximum is 115200 with the 1.8432 MHz clock (BAUDOUT- at
+1.8432 MHz).
+
+Early phases can skip this and use a fixed rate on both sides.
+
+### Power
+
+- ESP32 dev board's 5V/VIN pin fed from slot pins 15/16.
+- Add bulk capacitance (470 uF or more) near the ESP32 and reduce WiFi TX
+  power; transmit bursts can exceed the 350 mA budget.
+- **Never connect USB to the dev board while it is powered from the slot**
+  (backfeeds the Compaq's 5V rail). Flash it out of the machine, or cut
+  the USB 5V line on the debug cable.
+
+### Physical connection
+
+- System side (J22 on the System I/O board): shrouded 2x25 male pin
+  header, 1.27 mm pitch, pins pointing up.
+- Card side: 2x25 female receptacle, 1.27 mm pitch, mounted at the card's
+  bottom edge. One has been desoldered from an original modem and is on hand.
+- **Pin numbering is odd/even across the two rows** (1 and 2 side by side
+  at one end, 49 and 50 at the other), per the silkscreen on the original
+  modem at both connector positions (J1 and J4). Confirm that this matches
+  the manual's pin numbers by checking that pads 1, 26 and 27 are ground
+  and 15 and 16 are joined, on the modem PCB with a multimeter.
+- The original modem has two 50-pin connector positions: J1 (right-angle,
+  on one short edge, still fitted) and J4 (along a long edge, desoldered,
+  receptacle on hand). Use the empty J4 holes as the footprint template:
+  measure row spacing and hole size there.
+- Phase 0a/0b: a plain breakout PCB, receptacle to 2x25 0.1" header. For
+  Phase 0b, short wires (under 10 cm) from it to a DIP-40 16550 on a
+  breadboard are acceptable for a first test.
+- Final: custom card PCB with the receptacle on the bottom edge, the 16550
+  and glue logic beside it, the ESP32 module above, and a mounting point
+  for the Torx standoff next to J22.
+
+---
+
+## Phase 0a: Passive Bus Sniffing
+
+**Goal:** Learn what the 486c actually does on the slot before driving anything.
+
+Nothing connected to the slot may drive a signal in this phase.
+
+1. Establish pin numbering and verify +5V and GND with a multimeter.
+2. Configure COM2 (0x2F8, IRQ3) for the slot in the EISA Configuration Utility.
+3. Attach a logic analyzer (8 channels, 24 MHz is enough) to SLOT CS-,
+   IOR-, IOW-, A0-A2, RST and pin 21.
+4. In `DEBUG`, run `I 2F8`, `I 2F9`, `O 2F8 55`, and `I 3F8` as a control.
+5. Capture a power-on or reset.
+
+Questions to answer:
+
+- Does SLOT CS- pulse low only for 2F8-2FF? (pre-decoded) Or never? (card must decode)
+- Does pin 18 toggle as A0 between `I 2F8` and `I 2F9`?
+- Is there a 1.8432 MHz clock on pin 21?
+- Is RST active high?
+
+### Tracing the original modem (no PC needed)
+
+The modem's J4 pads are exposed, and its host-interface ASIC (U501,
+Compaq 125905-003) sits right behind the connector. With a multimeter in
+continuity mode, check which J4 pads reach U501:
+
+- Pin 10 (SLOT CS-) connected, pins 37-43 (A3-A9) not -> the modem relies
+  on the system's pre-decode, and so can this design.
+- Pins 37-43 connected -> the modem decodes addresses itself; plan for
+  the 74HCT688/GAL decoder.
+- Pin 21 (COMMCLK) connected to anything -> the clock is expected to be there.
+- Pin 49 (IOEN-): note whether it goes to the ASIC or is tied to a fixed level.
+- Pin 14 (BUSRDY-): connected or not.
+
+---
+
+## Phase 0b: UART on the Bus (no ESP32)
+
+**Goal:** The 486c sees a working COM2. No firmware involved.
+
+Wire the 16550, IRQ gate and IOEN- buffer. Leave the serial side
+unconnected except SOUT looped to SIN, and CTS-/DSR-/DCD- tied low.
+
+Tests:
+
+1. `DEBUG`: `O 2FF 55` then `I 2FF` reads `55` (scratch register).
+   Repeat with `AA`.
+2. BIOS lists COM2 at POST (or `DEBUG` `D 40:0` shows `F8 02` in the
+   second word).
+3. A terminal program on COM2 echoes typed characters through the
+   SOUT-SIN loop. This exercises interrupts.
+
+Outcomes:
+
+- Scratch register reads `FF` -> check IOEN- handling, then SLOT CS- and
+  address wiring on the analyzer.
+- Scratch works but no echo -> clock on XIN, or the IRQ path (OUT2- gate,
+  EISA IRQ assignment).
+- Hang or POST error -> bus contention; recheck CS2- and strobes.
+
+---
+
+## Phase 1: ESP32 Serial Link
+
+**Goal:** Characters typed in a DOS terminal reach the ESP32 and echo back.
+
+- Remove the loop; connect SOUT/SIN/RTS-/CTS- through the level shifter.
+- Firmware: UART echo at a fixed rate (e.g. 9600 8N1), hardware flow control on.
+- Then add baud tracking from BAUDOUT- and test at 2400, 19200, 57600, 115200.
+- Run from slot power and check the 5V rail under WiFi load.
+
+Quick win: flashing an existing ESP32 WiFi modem firmware such as Zimodem
+at this point gives a working modem and validates the hardware, before
+writing any custom AT code.
+
+---
+
+## Phase 2: WiFi Bridge
+
+**Goal:** Data flows between the DOS terminal and a TCP socket.
+
+- ESP32 connects to a configured WiFi AP (credentials set via AT commands,
+  stored in NVS)
+- `ATDT<host>:<port>` opens a TCP connection
+- Data mode: bytes flow bidirectionally between UART and socket
+- Honour RTS-/CTS- flow control in both directions
+- `+++` with guard time returns to command mode
+
+---
+
+## Phase 3: AT Command Set
+
+**Goal:** Hayes-compatible command set for terminal software (Telix, Procomm, etc.)
+
+Minimum commands:
+- `AT` -> `OK`
+- `ATZ` -> reset, `OK`
+- `ATE0/ATE1` -> echo off/on
+- `ATDThost:port` -> open TCP connection (`CONNECT <rate>`, `NO CARRIER`, `BUSY`)
+- `ATH` -> hang up (close connection)
+- `ATO` -> return to data mode
+- `ATS0=1` -> auto-answer (listen mode)
+- `+++` -> escape to command mode
+- WiFi setup commands (SSID/password)
+
+Modem control lines:
+- DCD- follows connection state
+- DTR- drop hangs up
+- RI- pulses on an incoming connection
+
+---
+
+## Phase 4: Polish
+
+- Final card PCB in the original modem's form factor, with the shield mounting
+- Telnet option negotiation, phonebook of host aliases
+- Optional: dial and connect sounds through the system speaker via MSPKDRV (pin 25)
+
+---
+
+## Alternative Not Chosen: ESP32 Directly on the Bus
+
+Having the ESP32 emulate the 16550 registers itself would save one chip,
+but:
+
+- An ISA read needs data roughly 400 ns after IOR- falls, which is marginal
+  for an ESP32 polling GPIO, and needs a hardware wait-state circuit on
+  BUSRDY- (pin 14) to be dependable.
+- It needs about 18 GPIOs, three 74LVC245s, hardware gating of the data
+  transceiver to prevent contention, and a core dedicated to polling.
+- All 16550 behaviour (divisor latch, loopback, interrupt priorities,
+  FIFO) has to be re-implemented and debugged against DOS software.
+
+A Pico W would suit that approach better than an ESP32, since RP2040 PIO
+handles ISA cycles with wait states (as PicoGUS and PicoMEM do).
+
+---
+
+## Key Risks
+
+1. **486c slot may differ from the LTE Lite slot** — signal directions, COMMCLK and SLOT CS- pre-decode all rest on this; Phase 0a checks it
+2. **IOEN- behaviour** — expected timing is undocumented; wrong handling reads as `FF`
+3. **Pin numbering and orientation** — odd/even per the modem silkscreen, but check ground/+5V pads before ordering a PCB; a mirrored footprint puts +5V on signal pins
+4. **Power** — WiFi TX bursts versus a 350 mA budget
+5. **ESP32 5V tolerance** — every 16550 output goes through 3.3V-powered LVC parts
+6. **Signal integrity** — three ground pins and a fine-pitch connector; keep bus wiring short
+
+## Shopping List
+
+- [ ] Calipers, multimeter
+- [ ] Logic analyzer, 8 channels, 24 MHz or better
+- [ ] Breakout PCB for the 1.27 mm receptacle (custom, small)
+- [ ] 16C550 UART in DIP-40 (TL16C550C or PC16550D), plus a spare
+- [ ] 74HCT125 (IRQ gate, IOEN- buffer)
+- [ ] 74LVC125 or 74LVC244 (5V -> 3.3V for the ESP32 inputs)
+- [ ] ESP32 dev board
+- [ ] 1.8432 MHz oscillator (only if pin 21 has no clock)
+- [ ] 74HCT688 or GAL (only if SLOT CS- is not pre-decoded)
+- [ ] 470 uF capacitor, 100 nF decoupling caps, breadboard, short jumpers
