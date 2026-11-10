@@ -22,11 +22,24 @@ between 1.27 mm pads:
     onto the upper header row.
 """
 import os
+import sys
 import pcbnew
 from pcbnew import FromMM, VECTOR2I
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "eos-breakout.kicad_pcb")
+
+# Two variants:
+#   (default)  rev A, 2 layers. Even-pin traces are 0.12 mm with 0.115 mm
+#              gaps, so it needs a fab with 0.10 mm trace/space capability.
+#   oshpark    rev B, 4 layers. Spreads the even-pin escape over four
+#              layers so everything meets OSH Park's 4-layer rules
+#              (5 mil trace/space, 15 mil board-edge keepout) with margin.
+VARIANT = sys.argv[1] if len(sys.argv) > 1 else "2layer"
+assert VARIANT in ("2layer", "oshpark"), VARIANT
+FOUR = VARIANT == "oshpark"
+NAME = "eos-breakout-oshpark" if FOUR else "eos-breakout"
+REV = "B" if FOUR else "A"
+OUT = os.path.join(HERE, NAME + ".kicad_pcb")
 
 # ---------------------------------------------------------------- geometry
 X1 = 50.0            # x of slot pins 1/2 (column 0)
@@ -42,7 +55,7 @@ H1 = X1              # header column 0 sits above slot column 0
 HDR_DRILL, HDR_PAD = 1.0, 1.7
 
 W_ODD = 0.25         # odd-pin trace width
-W_EVEN = 0.12        # even-pin trace width (limited by the edge strip)
+W_EVEN = 0.16 if FOUR else 0.12   # even-pin trace width (limited by the edge strip)
 
 # odd fan-out: one horizontal level per column, column 24 lowest
 FAN_Y0 = Y_ODD - 0.98        # level of column 24
@@ -51,16 +64,18 @@ Y_HDR_ODD = FAN_Y0 - FAN_PITCH * 23 - 2.2    # lower header row (odd pins)
 Y_HDR_EVEN = Y_HDR_ODD - HP                  # upper header row (even pins)
 
 # even escape: lanes in the strip between the even row and the edge
-LANE_Y0 = Y_EVEN + SLOT_PAD / 2 + 0.25
-LANE_PITCH = 0.235
-CH_PITCH = 0.3               # spacing once out of the strip
+LANE_Y0 = Y_EVEN + SLOT_PAD / 2 + (0.30 if FOUR else 0.25)
+LANE_PITCH = 0.36 if FOUR else 0.235
+CH_PITCH = 0.4 if FOUR else 0.3   # spacing once out of the strip
+MAX_LANES = 4 if FOUR else 7           # per layer, per exit direction
 X_CH_LEFT = X1 - 1.6         # first vertical channel left of the connector
 X_CH_RIGHT = H1 + HP * 24 + HDR_PAD / 2 + 0.6
 TOP_Y0 = Y_HDR_EVEN - HDR_PAD / 2 - 0.45     # first lane above the header
 
 X_LEFT = X1 - 5.5
-X_RIGHT = X_CH_RIGHT + CH_PITCH * 5 + 1.0
-Y_TOP = TOP_Y0 - CH_PITCH * 6 - 8.4          # room for the even-pin labels
+RIGHT_LANES = 3 if FOUR else 6
+X_RIGHT = X_CH_RIGHT + CH_PITCH * (RIGHT_LANES - 1) + 1.0
+Y_TOP = TOP_Y0 - CH_PITCH * (MAX_LANES - 1) - 8.4   # room for the even-pin labels
 
 # Signal names: 486c manual pin numbers, functions per the LTE Lite guide.
 NAMES = {
@@ -76,7 +91,7 @@ NAMES = {
 
 # ------------------------------------------------------------------ board
 board = pcbnew.BOARD()
-board.SetCopperLayerCount(2)
+board.SetCopperLayerCount(4 if FOUR else 2)
 ds = board.GetDesignSettings()
 ds.m_TrackMinWidth = FromMM(0.10)
 ds.m_MinClearance = FromMM(0.10)
@@ -203,10 +218,15 @@ def route_even(cols, layer, side):
               [(sx, sy), (sx, lane), (xc, lane), (xc, top), (hx, top), (hx, hy)])
 
 
-route_even([c for c in range(0, 13) if c % 2 == 0], B, "L")          # 7 nets
-route_even([c for c in range(0, 13) if c % 2 == 1], F, "L")          # 6 nets
-route_even([c for c in range(24, 12, -1) if c % 2 == 0], B, "R")     # 6 nets
-route_even([c for c in range(24, 12, -1) if c % 2 == 1], F, "R")     # 6 nets
+LAYERS = [B, F, pcbnew.In1_Cu, pcbnew.In2_Cu] if FOUR else [B, F]
+left = list(range(0, 13))            # nearest the left exit first
+right = list(range(24, 12, -1))      # nearest the right exit first
+for li, layer in enumerate(LAYERS):
+    lcols = left[li::len(LAYERS)]
+    rcols = right[li::len(LAYERS)]
+    assert len(lcols) <= MAX_LANES and len(rcols) <= MAX_LANES
+    route_even(lcols, layer, "L")
+    route_even(rcols, layer, "R")
 
 # ---------------------------------------------------------------- outline
 def edge(a, b):
@@ -246,13 +266,13 @@ for col in range(25):
     odd, even = 2 * col + 1, 2 * col + 2
     # reading bottom-to-top; odd names hang below the header, even names above
     text(f"{odd} {NAMES[odd]}", x, Y_HDR_ODD + HDR_PAD / 2 + 0.5, angle=90, just="R")
-    text(f"{even} {NAMES[even]}", x, TOP_Y0 - CH_PITCH * 6 - 0.6, angle=90, just="L")
+    text(f"{even} {NAMES[even]}", x, TOP_Y0 - CH_PITCH * (MAX_LANES - 1) - 0.6, angle=90, just="L")
 
 text("1", X1 - 1.3, Y_ODD, size=0.8)
 text("2", X1 - 1.3, Y_EVEN + 0.1, size=0.8)
 text("49", X1 + P * 24 + 1.7, Y_ODD, size=0.8)
 text("50", X1 + P * 24 + 1.7, Y_EVEN + 0.1, size=0.8)
-text("COMPAQ EOS BREAKOUT  REV A", X1 + P * 24 + 4.0, Y_ODD - 0.2,
+text(f"COMPAQ EOS BREAKOUT  REV {REV}", X1 + P * 24 + 4.0, Y_ODD - 0.2,
      size=0.8, thick=0.13, just="L")
 text("TOP SIDE - RECEPTACLE ON BOTTOM", X1 + P * 24 + 4.0, Y_EVEN + 0.1,
      size=0.8, thick=0.13, just="L")
