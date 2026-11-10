@@ -207,9 +207,19 @@ Observations relevant to a replacement card:
 - No buffer or transceiver chips sit between the connector and the ASIC.
 - No jumpers or DIP switches, so the COM port is not selected on the card.
 - Bulk capacitance on the 5V rail is three 68 uF tantalums.
-- Two 50-pin connector positions carry the slot signals: J1 (right-angle
-  receptacle on a short edge) and J4 (two rows of 25 through-holes along
-  a long edge).
+- Two 50-pin connector positions carry the slot signals: J1 (receptacle
+  on the short edge opposite the phone jacks) and J4 (two rows of 25
+  through-holes along a long edge, right-angle receptacle).
+- In the Portable 486c the modem stands upright on its long edge and
+  mates through J4, with the phone jacks facing the rear. See
+  https://bitsavers.org/pdf/compaq/Compaq_Portable_486/pictures/486c_PCBs_1.JPG
+  (modem at far left). J1 is unused in the 486c; presumably it serves
+  another machine such as the LTE Lite.
+- The slot header J22 is a keyed, shrouded 2x25 header at the corner of
+  the System I/O board, beside a mounting standoff. See
+  https://bitsavers.org/pdf/compaq/Compaq_Portable_486/pictures/Bottom_PCB_T.JPG
+  (far right). The same photo shows a 1.8432 MHz oscillator (Y2) on the
+  System I/O board, the likely source of the clock on slot pin 21.
 - Silkscreen marks pins 1 and 2 side by side at one end of J4 and 49 and
   50 at the other, and pin 2 and pin 50 at opposite ends of J1. Numbering
   is therefore odd/even across the rows, not one row 1-25 and the other
