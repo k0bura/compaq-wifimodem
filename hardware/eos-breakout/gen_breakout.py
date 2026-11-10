@@ -5,40 +5,31 @@ Run with the system Python that ships the pcbnew module:
 
     /usr/bin/python3 gen_breakout.py
 
-Writes eos-breakout.kicad_pcb next to this script.
+Writes eos-breakout-oshpark.kicad_pcb next to this script.
 
 The board carries the original Compaq 2x25 1.27 mm right-angle receptacle
 (desoldered from the modem's J4 position) and fans it out to a 2x25 2.54 mm
 header. It is drawn as seen from the modem's TOP side; the receptacle body
 mounts on the BOTTOM side, as on the modem.
 
-Layout rules that make this routable on two layers without running traces
-between 1.27 mm pads:
+Four layers, no vias, within OSH Park's 4-layer rules (5 mil trace/space,
+15 mil board-edge keepout). A trace cannot pass between 1.27 mm pads, so:
   - odd pins (row farther from the edge) leave upward on F.Cu and fan out
     to the lower header row;
   - even pins (row nearer the edge) leave downward into the 2 mm strip
     between the pads and the board edge, run out past the ends of the
     connector, go up the sides and over the top of the header, and drop
-    onto the upper header row.
+    onto the upper header row. They are spread over all four layers, at
+    most four per layer per side, which is what gives them room.
 """
 import os
-import sys
 import pcbnew
 from pcbnew import FromMM, VECTOR2I
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# Two variants:
-#   (default)  rev A, 2 layers. Even-pin traces are 0.12 mm with 0.115 mm
-#              gaps, so it needs a fab with 0.10 mm trace/space capability.
-#   oshpark    rev B, 4 layers. Spreads the even-pin escape over four
-#              layers so everything meets OSH Park's 4-layer rules
-#              (5 mil trace/space, 15 mil board-edge keepout) with margin.
-VARIANT = sys.argv[1] if len(sys.argv) > 1 else "2layer"
-assert VARIANT in ("2layer", "oshpark"), VARIANT
-FOUR = VARIANT == "oshpark"
-NAME = "eos-breakout-oshpark" if FOUR else "eos-breakout"
-REV = "B" if FOUR else "A"
+NAME = "eos-breakout-oshpark"
+REV = "B"
 OUT = os.path.join(HERE, NAME + ".kicad_pcb")
 
 # ---------------------------------------------------------------- geometry
@@ -55,7 +46,7 @@ H1 = X1              # header column 0 sits above slot column 0
 HDR_DRILL, HDR_PAD = 1.0, 1.7
 
 W_ODD = 0.25         # odd-pin trace width
-W_EVEN = 0.16 if FOUR else 0.12   # even-pin trace width (limited by the edge strip)
+W_EVEN = 0.16        # even-pin trace width (limited by the edge strip)
 
 # odd fan-out: one horizontal level per column, column 24 lowest
 FAN_Y0 = Y_ODD - 0.98        # level of column 24
@@ -64,16 +55,16 @@ Y_HDR_ODD = FAN_Y0 - FAN_PITCH * 23 - 2.2    # lower header row (odd pins)
 Y_HDR_EVEN = Y_HDR_ODD - HP                  # upper header row (even pins)
 
 # even escape: lanes in the strip between the even row and the edge
-LANE_Y0 = Y_EVEN + SLOT_PAD / 2 + (0.30 if FOUR else 0.25)
-LANE_PITCH = 0.36 if FOUR else 0.235
-CH_PITCH = 0.4 if FOUR else 0.3   # spacing once out of the strip
-MAX_LANES = 4 if FOUR else 7           # per layer, per exit direction
+LANE_Y0 = Y_EVEN + SLOT_PAD / 2 + 0.30
+LANE_PITCH = 0.36
+CH_PITCH = 0.4               # spacing once out of the strip
+MAX_LANES = 4                # per layer, per exit direction
 X_CH_LEFT = X1 - 1.6         # first vertical channel left of the connector
 X_CH_RIGHT = H1 + HP * 24 + HDR_PAD / 2 + 0.6
 TOP_Y0 = Y_HDR_EVEN - HDR_PAD / 2 - 0.45     # first lane above the header
 
 X_LEFT = X1 - 5.5
-RIGHT_LANES = 3 if FOUR else 6
+RIGHT_LANES = 3
 X_RIGHT = X_CH_RIGHT + CH_PITCH * (RIGHT_LANES - 1) + 1.0
 Y_TOP = TOP_Y0 - CH_PITCH * (MAX_LANES - 1) - 8.4   # room for the even-pin labels
 
@@ -91,7 +82,7 @@ NAMES = {
 
 # ------------------------------------------------------------------ board
 board = pcbnew.BOARD()
-board.SetCopperLayerCount(4 if FOUR else 2)
+board.SetCopperLayerCount(4)
 ds = board.GetDesignSettings()
 ds.m_TrackMinWidth = FromMM(0.10)
 ds.m_MinClearance = FromMM(0.10)
@@ -218,7 +209,7 @@ def route_even(cols, layer, side):
               [(sx, sy), (sx, lane), (xc, lane), (xc, top), (hx, top), (hx, hy)])
 
 
-LAYERS = [B, F, pcbnew.In1_Cu, pcbnew.In2_Cu] if FOUR else [B, F]
+LAYERS = [B, F, pcbnew.In1_Cu, pcbnew.In2_Cu]
 left = list(range(0, 13))            # nearest the left exit first
 right = list(range(24, 12, -1))      # nearest the right exit first
 for li, layer in enumerate(LAYERS):
