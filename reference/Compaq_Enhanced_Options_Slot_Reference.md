@@ -134,7 +134,9 @@ A trailing `-` means active low.
   "SLOT-OAK" and "1016" for DMA, SLOT-DRQ, SLOT-DAK and IO16.
 - **Pin 49 (SLOT IOEN-) is driven by the card**, not by the system. How
   the 486c uses it (most likely to enable its data buffers toward the
-  slot) is not documented; confirm by measurement.
+  slot) is not documented; confirm by measurement. On the original modem
+  pin 49 shows no continuity to anything (see "Continuity tracing"
+  below).
 
 ---
 
@@ -224,6 +226,22 @@ Observations relevant to a replacement card:
   50 at the other, and pin 2 and pin 50 at opposite ends of J1. Numbering
   is therefore odd/even across the rows, not one row 1-25 and the other
   26-50.
+
+### Continuity tracing (2026-11-11)
+
+Multimeter continuity from the connector pads to U501, the host-interface
+ASIC (the chip marked 125905-003 on the bottom side):
+
+- Pin 10 (SLOT CS-) reaches one pin of U501.
+- Pins 18, 19, 20 (A0-A2) reach U501.
+- Pins 37-43 (A3-A9) do not reach U501. The modem therefore does not
+  decode its own address and relies on the system's SLOT CS-.
+- Pin 21 (COMMCLK) reaches U501.
+- Pin 49 (SLOT IOEN-) shows no continuity to anything and reads open
+  circuit to ground and +5V, checked at J1. At J4 it beeps to pin 50,
+  but that is a solder bridge left from desoldering. Pins 10 and 21 were
+  rechecked at J1 for that reason and both still reach U501.
+- Pin 14 (BUSRDY-) not yet checked.
 
 ---
 

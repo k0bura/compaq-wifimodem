@@ -68,7 +68,7 @@ Directions are from the card's point of view.
 | Upper address | 37-43 (A3-A9) | In | Only needed if SLOT CS- turns out not to be pre-decoded. |
 | SLOT CS- ("Select") | 10 | In | Active low. On the LTE Lite the system pre-decodes this as COM1/COM2. |
 | IOR-, IOW- | 12, 11 | In | Active low, ISA timing. |
-| SLOT IOEN- | 49 | **Out** | Active low. Card tells the system it has a valid address decode. |
+| SLOT IOEN- | 49 | **Out** | Active low. Card tells the system it has a valid address decode. The original modem leaves it unconnected. |
 | SLOT IRQA ("IRQ") | 13 | Out | System maps it to IRQ3 or IRQ4. |
 | SLOT RST | 17 | In | Reset. Presumed active high (as ISA RESET DRV); verify. |
 | COMMCLK ("Mclock") | 21 | In | 1.8432 MHz UART clock (LTE Lite). The 486c System I/O board has a 1.8432 MHz oscillator (Y2), so the clock is likely present; verify on pin 21. |
@@ -130,9 +130,11 @@ chip. Power and ground are DIP 40 and DIP 20.
 - Parts: SN74HCT125N (DIP-14); the SN74AHCT125N is an equivalent
   substitute. Tie unused buffer inputs to ground and their enables to +5V.
 - **IRQ gate:** one 74HCT125 section, input INTRPT, enable OUT2-, output to pin 13.
-- **IOEN-:** drive pin 49 low while the card is selected. Start with a
-  74HCT125 section buffering SLOT CS-; revise after Phase 0a.
-- **Own address decode (only if SLOT CS- is not pre-decoded on the 486c):**
+- **IOEN-:** leave slot pin 49 unconnected, copying the original modem
+  (see "Tracing results"). Fallback if reads return `FF`: a 74HCT125
+  section driving pin 49 low while SLOT CS- is low.
+- **Own address decode (not expected to be needed; the original modem
+  has none, see "Tracing results"):**
   compare A3-A9 against 0x2F8 with pin 28 (DMA) low, using a 74HCT688
   (CD74HCT688E, DIP-20) or a GAL, and feed the result to CS2- and IOEN-.
 - **Reset inverter (only if SLOT RST is active low):** one section of an
@@ -344,13 +346,37 @@ continuity mode, check which J4 pads reach U501:
 - Pin 49 (IOEN-): note whether it goes to the ASIC or is tied to a fixed level.
 - Pin 14 (BUSRDY-): connected or not.
 
+### Tracing results (2026-11-11)
+
+Continuity checks on the original modem, from the J4 pads (and J1 for
+pins 49/50) to U501. Pins 18-20 were used as a control and beeped, so
+the pin numbering and the method are sound.
+
+J4's pads carry solder bridges left from desoldering: pins 49 and 50
+beeped together at J4 but not at J1, which was never desoldered. A
+bridge can cause a false beep, not a false silence, so the "reaches
+U501" results for pins 10 and 21 were rechecked at J1 and both hold.
+
+| Slot pin | Result | Conclusion |
+|----------|--------|------------|
+| 10 (SLOT CS-) | Reaches U501 (one pin) | The modem uses the system's select |
+| 18, 19, 20 (A0-A2) | Reach U501 | Register select, as expected |
+| 37-43 (A3-A9) | No connection to U501 | The modem cannot decode its own address, so the 486c pre-decodes SLOT CS-. **Decoder not needed** |
+| 21 (COMMCLK) | Reaches U501 | The modem took its clock from the slot. **Oscillator probably not needed**; confirm a clock is running on the machine |
+| 49 (SLOT IOEN-) | No continuity to anything, and open circuit to ground and +5V in resistance mode, checked at J1 | The modem leaves IOEN- unconnected, so the 486c does not need it for a COM device. The card leaves it unconnected too |
+| 14 (BUSRDY-) | Not yet checked | |
+
+Still to settle on the running machine (Phase 0a): SLOT RST polarity on
+pin 17 and a running clock on pin 21. The pre-decode conclusion rests on
+the modem; the analyzer capture of SLOT CS- remains the confirmation.
+
 ---
 
 ## Phase 0b: UART on the Bus (no ESP32)
 
 **Goal:** The 486c sees a working COM2. No firmware involved.
 
-Wire the 16550, IRQ gate and IOEN- buffer. Leave the serial side
+Wire the 16550 and the IRQ gate; leave pin 49 (IOEN-) unconnected. Leave the serial side
 unconnected except SOUT looped to SIN, and CTS-/DSR-/DCD- tied low.
 
 Tests:
@@ -458,7 +484,7 @@ handles ISA cycles with wait states (as PicoGUS and PicoMEM do).
 ## Key Risks
 
 1. **486c slot may differ from the LTE Lite slot** — signal directions, COMMCLK and SLOT CS- pre-decode all rest on this; Phase 0a checks it
-2. **IOEN- behaviour** — expected timing is undocumented; wrong handling reads as `FF`
+2. **IOEN- behaviour** — undocumented; the original modem leaves pin 49 unconnected and the card copies that, with a driven buffer as the fallback if reads return `FF`
 3. **Pin numbering and orientation** — odd/even per the modem silkscreen, but check ground/+5V pads before ordering a PCB; a mirrored footprint puts +5V on signal pins
 4. **Power** — WiFi TX bursts versus a 350 mA budget
 5. **ESP32 5V tolerance** — every 16550 output goes through 3.3V-powered LVC parts
@@ -471,10 +497,10 @@ handles ISA cycles with wait states (as PicoGUS and PicoMEM do).
 - [ ] Calipers, multimeter
 - [ ] Logic analyzer, 8 channels, 24 MHz or better
 - [ ] Custom breakout PCB for the original 1.27 mm receptacle (no off-the-shelf adapter fits the keyed header)
-- [ ] 16C550 UART: TL16C550CFNR (PLCC-44) x2 — Mouser cart, 2026-11-11
+- [x] 16C550 UART: TL16C550CFNR (PLCC-44) x2 — ordered from Mouser 2026-11-11
 - [x] PLCC44-DIP40 V2.0 adapter with "flash"/"51" jumpers — on hand
 - [x] PLCC extraction tool — on hand
-- [ ] 74HCT125 (IRQ gate, IOEN- buffer): SN74HCT125NE4 x2 — Mouser cart
+- [x] 74HCT125 (IRQ gate; IOEN- buffer only as a fallback): SN74HCT125NE4 x2 — ordered from Mouser 2026-11-11
 - [x] 5V -> 3.3V buffer for the ESP32 inputs: SN74LVC245AN — on hand
 - [x] ESP32 dev board — on hand. The external antenna needs a U.FL
       connector (WROOM-32U type); confirm this board has one before the
@@ -484,9 +510,9 @@ handles ISA cycles with wait states (as PicoGUS and PicoMEM do).
 - [ ] RJ12 (6P6C) jack, RJ12 cable, a second jack or breakout for the display end
 - [ ] 100 ohm resistors, 4.7K pull-ups and ESD protection diodes for the display lines
 - [ ] Plate material for the phone-jack opening (3D print or sheet metal)
-- [ ] 1.8432 MHz oscillator (only if pin 21 has no clock): ECS-100AX-018, 5V DIP-14 can — Mouser cart
-- [ ] Address decoder (only if SLOT CS- is not pre-decoded): CD74HCT688EE4, DIP-20 — Mouser cart
-- [ ] Inverter (only if SLOT RST is active low): SN74HCT04N — Mouser cart
-- [ ] 470 uF 25V electrolytic x2 (Vishay MAL219056471E3; fit one only) — Mouser cart
-- [ ] 100 nF X7R leaded x10 (Vishay K104K15X7RF5TL2) — Mouser cart
+- [x] 1.8432 MHz oscillator (only if pin 21 has no clock): ECS-100AX-018, 5V DIP-14 can — ordered from Mouser 2026-11-11
+- [x] Address decoder (only if SLOT CS- is not pre-decoded): CD74HCT688EE4, DIP-20 — ordered from Mouser 2026-11-11
+- [x] Inverter (only if SLOT RST is active low): SN74HCT04N — ordered from Mouser 2026-11-11
+- [x] 470 uF 25V electrolytic x2 (Vishay MAL219056471E3; fit one only) — ordered from Mouser 2026-11-11
+- [x] 100 nF X7R leaded x10 (Vishay K104K15X7RF5TL2) — ordered from Mouser 2026-11-11
 - [ ] Breadboard, short jumpers, resistors (100 ohm, 4.7K, 10K)
