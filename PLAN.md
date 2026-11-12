@@ -364,7 +364,7 @@ U501" results for pins 10 and 21 were rechecked at J1 and both hold.
 | 37-43 (A3-A9) | No connection to U501 | The modem cannot decode its own address, so the 486c pre-decodes SLOT CS-. **Decoder not needed** |
 | 21 (COMMCLK) | Reaches U501 | The modem took its clock from the slot. **Oscillator probably not needed**; confirm a clock is running on the machine |
 | 49 (SLOT IOEN-) | No continuity to anything, and open circuit to ground and +5V in resistance mode, checked at J1 | The modem leaves IOEN- unconnected, so the 486c does not need it for a COM device. The card leaves it unconnected too |
-| 14 (BUSRDY-) | Not yet checked | |
+| 14 (BUSRDY-) | No continuity to U501 (resistance to ground and +5V not measured) | The modem's bus chip never requested wait states, so it ran at the slot's normal bus timing. The card leaves pin 14 unconnected |
 
 Still to settle on the running machine (Phase 0a): SLOT RST polarity on
 pin 17 and a running clock on pin 21. The pre-decode conclusion rests on

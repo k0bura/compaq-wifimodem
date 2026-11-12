@@ -241,7 +241,8 @@ ASIC (the chip marked 125905-003 on the bottom side):
   circuit to ground and +5V, checked at J1. At J4 it beeps to pin 50,
   but that is a solder bridge left from desoldering. Pins 10 and 21 were
   rechecked at J1 for that reason and both still reach U501.
-- Pin 14 (BUSRDY-) not yet checked.
+- Pin 14 (BUSRDY-) shows no continuity to U501. Resistance to ground
+  and +5V not measured.
 
 ---
 
