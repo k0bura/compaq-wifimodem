@@ -87,7 +87,26 @@ SLOT IRQB (46), I/O16- (47). MSPKDRV (25) is optional, see Phase 4.
 ### UART
 
 16C550 powered at 5V, so the bus side needs no level shifting.
-TL16C550C or PC16550D; DIP-40 for breadboarding, PLCC-44 for the final card.
+The part is the TL16C550CFN (PLCC-44), for both breadboarding and the
+final card. The DIP-40 version (TL16C550CN) is obsolete.
+
+For breadboarding the chip sits in a "PLCC44-DIP40 V2.0" programmer
+adapter (on hand), which has two jumpers marked "flash" and "51". Set
+both to "51". The wiring the 16550 needs leaves out PLCC pins 1, 12, 23
+and 34, which are unconnected on the chip:
+
+| DIP-40 pin | PLCC-44 pin |
+|------------|-------------|
+| 1-10 | 2-11 |
+| 11-20 | 13-22 |
+| 21-30 | 24-33 |
+| 31-40 | 35-44 |
+
+With that wiring the adapter's DIP pins follow the standard DIP-40 16550
+pinout. **Not yet verified on the adapter:** check all 40 pins for
+continuity against this table with the socket empty, and check the table
+itself against the datasheet's N and FN pin diagrams, before fitting a
+chip. Power and ground are DIP 40 and DIP 20.
 
 | 16550 pin | Connects to | Notes |
 |-----------|-------------|-------|
@@ -108,18 +127,36 @@ TL16C550C or PC16550D; DIP-40 for breadboarding, PLCC-44 for the final card.
 
 ### Glue logic
 
+- Parts: SN74HCT125N (DIP-14); the SN74AHCT125N is an equivalent
+  substitute. Tie unused buffer inputs to ground and their enables to +5V.
 - **IRQ gate:** one 74HCT125 section, input INTRPT, enable OUT2-, output to pin 13.
 - **IOEN-:** drive pin 49 low while the card is selected. Start with a
   74HCT125 section buffering SLOT CS-; revise after Phase 0a.
 - **Own address decode (only if SLOT CS- is not pre-decoded on the 486c):**
-  compare A3-A9 against 0x2F8 with pin 28 (DMA) low, using a 74HCT688 or
-  a GAL, and feed the result to CS2- and IOEN-.
+  compare A3-A9 against 0x2F8 with pin 28 (DMA) low, using a 74HCT688
+  (CD74HCT688E, DIP-20) or a GAL, and feed the result to CS2- and IOEN-.
+- **Reset inverter (only if SLOT RST is active low):** one section of an
+  SN74HCT04N. Use the HCT part, not HC, for TTL input thresholds.
 
 ### ESP32 side
 
-All 5V-to-ESP32 signals go through a 74LVC125/74LVC244 powered at **3.3V**
-(5V-tolerant inputs, 3.3V outputs). ESP32 GPIOs are not 5V tolerant.
-Do not use 74HCT parts powered at 5V for this direction.
+All 5V-to-ESP32 signals go through an SN74LVC245AN (DIP-20, on hand)
+powered at **3.3V** (5V-tolerant inputs, 3.3V outputs). ESP32 GPIOs are
+not 5V tolerant. Do not use 74HCT parts powered at 5V for this direction.
+A 74LVC125 or 74LVC244 would do the same job.
+
+| 74LVC245A pin | Connects to |
+|---------------|-------------|
+| 20 (VCC) | 3.3V from the ESP32 board, 100 nF to ground |
+| 10 (GND) | Ground |
+| 1 (DIR) | 3.3V (direction A to B) |
+| 19 (OE-) | Ground (always enabled) |
+| 2-5 (A1-A4) | 16550 SOUT, RTS-, DTR-, BAUDOUT- |
+| 18-15 (B1-B4) | The matching ESP32 inputs |
+| 6-9 (A5-A8) | Ground (unused) |
+| 14-11 (B5-B8) | Unconnected |
+
+Check the pin numbers against the datasheet before powering up.
 
 | Signal | ESP32 | Direction | Level shift |
 |--------|-------|-----------|-------------|
@@ -132,8 +169,12 @@ Do not use 74HCT parts powered at 5V for this direction.
 | RI- | GPIO | Out | None |
 | BAUDOUT- | GPIO (pulse counter) | In | 74LVC |
 
-DSR- is tied low (modem always ready). Total: 8 GPIOs. Use a UART other
-than UART0 so the USB console stays free for debugging.
+| OLED SDA | GPIO (I2C) | In/out | None (3.3V bus) |
+| OLED SCL | GPIO (I2C) | Out | None (3.3V bus) |
+
+DSR- is tied low (modem always ready). Total: 10 GPIOs, 8 for the UART
+side and 2 for the status display. Use a UART other than UART0 so the
+USB console stays free for debugging.
 
 The serial side is TTL-level and non-inverted (idle high, modem-control
 lines active low), which matches the ESP32 UART directly. No RS-232
@@ -148,6 +189,62 @@ UART to match. Maximum is 115200 with the 1.8432 MHz clock (BAUDOUT- at
 1.8432 MHz).
 
 Early phases can skip this and use a fixed rate on both sides.
+
+### Rear panel: antenna and status display
+
+The case has an opening for the original modem's two phone jacks. The
+card reuses it for an external WiFi antenna and a connector for an
+external status display. The opening's dimensions and its position
+relative to the card have not been measured yet; measure both before
+designing the plate or choosing a pigtail length.
+
+**Antenna**
+
+- Use an ESP32 module with a U.FL (IPEX) antenna connector instead of a
+  PCB antenna: ESP32-WROOM-32U, or the DevKitC-32U dev board. A PCB
+  antenna inside the case would sit behind the machine's shielding.
+- A short U.FL to RP-SMA bulkhead pigtail carries the signal to the
+  opening. A standard 2.4 GHz RP-SMA antenna screws on from outside.
+- A bulkhead RP-SMA needs a round hole of about 6.5 mm. A small plate
+  (3D-printed or sheet metal) covers the phone-jack opening and holds the
+  connector. Fix the plate to the card so the assembly slides in as one
+  piece, as the original modem did.
+- The plate must take the antenna's leverage. The U.FL socket takes no
+  strain and is rated for only a few dozen matings.
+- With a metal plate the connector shell joins card ground to chassis
+  ground at that point. Check it with a multimeter so it is a known
+  connection.
+- Not chosen: an edge-mount SMA soldered to the card. It needs a 50-ohm
+  trace from the module to the connector, for no gain over the pigtail.
+
+**Status display**
+
+- SSD1306 I2C OLED module (0.96" or 1.3", 128x64), in a small external
+  enclosure on a cable up to about 1 m, I2C at 100 kHz.
+- Shows SSID, signal strength, IP address, connection state (idle,
+  dialling, connected and to where) and the current baud rate.
+- Connector in the second jack position: 6-pin RJ12.
+
+  | RJ12 pin | Signal |
+  |----------|--------|
+  | 1 | 3.3V |
+  | 2 | GND |
+  | 3 | SDA |
+  | 4 | SCL |
+  | 5, 6 | Spare (button or LED) |
+
+- 3.3V comes from the ESP32 board's regulator. The display draws about
+  20 mA, which counts against the slot's 350 mA.
+- The lines leave the case, so each gets a series resistor (100 ohm) and
+  an ESD protection diode. I2C pull-ups (4.7K to 3.3V) go on the card.
+- **A phone line must never be plugged into this jack**; ring voltage
+  (about 90 V AC) would destroy the card. Label the jack. If that is not
+  safe enough, use a connector that cannot be mistaken for a phone jack
+  (3.5 mm 4-pole or mini-DIN) on the same plate as the antenna.
+- The firmware must run normally with no display attached.
+- USB was considered for this and rejected: the ESP32 has no native USB,
+  and connecting the dev board's USB while slot-powered backfeeds the
+  Compaq's 5V rail (see Power).
 
 ### Power
 
@@ -204,8 +301,9 @@ Early phases can skip this and use a fixed rate on both sides.
   and matches. Twelve of the even-pin traces run on the two inner
   layers, so when the boards arrive check continuity from every header
   pin to its slot pad before soldering the receptacle.
-- For Phase 0b, short wires (under 10 cm) from the header to a DIP-40
-  16550 on a breadboard are acceptable for a first test.
+- For Phase 0b, short wires (under 10 cm) from the header to the 16550,
+  in its PLCC-to-DIP adapter on a breadboard, are acceptable for a first
+  test.
 - Final: custom card PCB with the receptacle on the bottom edge, the 16550
   and glue logic beside it, the ESP32 module above, and a mounting point
   for the Torx standoff next to J22.
@@ -282,6 +380,9 @@ Outcomes:
 - Firmware: UART echo at a fixed rate (e.g. 9600 8N1), hardware flow control on.
 - Then add baud tracking from BAUDOUT- and test at 2400, 19200, 57600, 115200.
 - Run from slot power and check the 5V rail under WiFi load.
+- Fit the external antenna (U.FL pigtail to RP-SMA) from this phase on,
+  so WiFi range and TX power are tested as they will be used. Compare
+  signal strength with the case closed.
 
 Quick win: flashing an existing ESP32 WiFi modem firmware such as Zimodem
 at this point gives a working modem and validates the hardware, before
@@ -327,6 +428,10 @@ Modem control lines:
 ## Phase 4: Polish
 
 - Final card PCB in the original modem's form factor, with the shield mounting
+- Rear plate for the phone-jack opening carrying the RP-SMA bulkhead and
+  the RJ12 display jack
+- External OLED status display: I2C driver, status screen, and firmware
+  that tolerates the display being absent or unplugged while running
 - Telnet option negotiation, phonebook of host aliases
 - Optional: dial and connect sounds through the system speaker via MSPKDRV (pin 25)
 
@@ -358,16 +463,30 @@ handles ISA cycles with wait states (as PicoGUS and PicoMEM do).
 4. **Power** — WiFi TX bursts versus a 350 mA budget
 5. **ESP32 5V tolerance** — every 16550 output goes through 3.3V-powered LVC parts
 6. **Signal integrity** — three ground pins and a fine-pitch connector; keep bus wiring short
+7. **Phone line in the display jack** — an RJ12 in a phone-jack opening invites it; ring voltage would destroy the card
+8. **Rear opening not yet measured** — the plate, connector positions and pigtail length all depend on it
 
 ## Shopping List
 
 - [ ] Calipers, multimeter
 - [ ] Logic analyzer, 8 channels, 24 MHz or better
 - [ ] Custom breakout PCB for the original 1.27 mm receptacle (no off-the-shelf adapter fits the keyed header)
-- [ ] 16C550 UART in DIP-40 (TL16C550C or PC16550D), plus a spare
-- [ ] 74HCT125 (IRQ gate, IOEN- buffer)
-- [ ] 74LVC125 or 74LVC244 (5V -> 3.3V for the ESP32 inputs)
-- [ ] ESP32 dev board
-- [ ] 1.8432 MHz oscillator (only if pin 21 has no clock)
-- [ ] 74HCT688 or GAL (only if SLOT CS- is not pre-decoded)
-- [ ] 470 uF capacitor, 100 nF decoupling caps, breadboard, short jumpers
+- [ ] 16C550 UART: TL16C550CFNR (PLCC-44) x2 — Mouser cart, 2026-11-11
+- [x] PLCC44-DIP40 V2.0 adapter with "flash"/"51" jumpers — on hand
+- [x] PLCC extraction tool — on hand
+- [ ] 74HCT125 (IRQ gate, IOEN- buffer): SN74HCT125NE4 x2 — Mouser cart
+- [x] 5V -> 3.3V buffer for the ESP32 inputs: SN74LVC245AN — on hand
+- [x] ESP32 dev board — on hand. The external antenna needs a U.FL
+      connector (WROOM-32U type); confirm this board has one before the
+      antenna step
+- [ ] U.FL to RP-SMA bulkhead pigtail and a 2.4 GHz RP-SMA antenna (buy as a matching pair) — deferred
+- [ ] SSD1306 I2C OLED module, 128x64
+- [ ] RJ12 (6P6C) jack, RJ12 cable, a second jack or breakout for the display end
+- [ ] 100 ohm resistors, 4.7K pull-ups and ESD protection diodes for the display lines
+- [ ] Plate material for the phone-jack opening (3D print or sheet metal)
+- [ ] 1.8432 MHz oscillator (only if pin 21 has no clock): ECS-100AX-018, 5V DIP-14 can — Mouser cart
+- [ ] Address decoder (only if SLOT CS- is not pre-decoded): CD74HCT688EE4, DIP-20 — Mouser cart
+- [ ] Inverter (only if SLOT RST is active low): SN74HCT04N — Mouser cart
+- [ ] 470 uF 25V electrolytic x2 (Vishay MAL219056471E3; fit one only) — Mouser cart
+- [ ] 100 nF X7R leaded x10 (Vishay K104K15X7RF5TL2) — Mouser cart
+- [ ] Breadboard, short jumpers, resistors (100 ohm, 4.7K, 10K)
